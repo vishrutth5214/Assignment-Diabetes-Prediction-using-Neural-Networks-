@@ -1,0 +1,157 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
+
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Input
+df = pd.read_csv("diabetes.csv")
+print("=" * 60)
+print("DATASET SUMMARY")
+print("=" * 60)
+print(f"\nShape of dataset: {df.shape}")
+print(f"\nColumn names:\n{list(df.columns)}")
+print(f"\nData types:\n{df.dtypes}")
+print(f"\nMissing values per column:\n{df.isnull().sum()}")
+print(f"\nBasic statistics:\n{df.describe()}")
+cols_with_invalid_zero = ["Glucose", "BloodPressure", "SkinThickness", "Insulin", "BMI"]
+for col in cols_with_invalid_zero:
+    df[col] = df[col].replace(0, np.nan)
+
+print(f"\nMissing values after treating invalid zeros as NaN:\n{df.isnull().sum()}")
+df.fillna(df.median(numeric_only=True), inplace=True)
+X = df.drop("Outcome", axis=1)
+y = df["Outcome"]
+print(f"\nFeature set shape (X): {X.shape}")
+print(f"Target set shape (y): {y.shape}")
+print(f"\nClass distribution in target:\n{y.value_counts()}")
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.20, random_state=42, stratify=y
+)
+print(f"\nTraining set shape: {X_train.shape}")
+print(f"Testing set shape: {X_test.shape}")
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
+print("\nFeature scaling complete (mean=0, std=1 on training data).")
+print("\n" + "=" * 60)
+print("BUILDING THE ANN")
+print("=" * 60)
+n_features = X_train_scaled.shape[1]
+model = Sequential([
+    Input(shape=(n_features,)), # Input layer: one node per feature (8 features)
+    Dense(16, activation="relu"), # First hidden layer: 16 neurons, ReLU activation
+    Dense(8, activation="relu"), # Second hidden layer: 8 neurons, ReLU activation
+    Dense(1, activation="sigmoid") # Output layer: 1 neuron, Sigmoid (binary classification)
+])
+model.compile(
+    optimizer="adam",
+    loss="binary_crossentropy",
+    metrics=["accuracy"]
+)
+model.summary()
+print("\n" + "=" * 60)
+print("TRAINING THE MODEL")
+print("=" * 60)
+
+EPOCHS = 100
+BATCH_SIZE = 16
+
+history = model.fit(
+    X_train_scaled, y_train,
+    validation_split=0.2, # holds out part of training data to monitor overfitting
+    epochs=EPOCHS,
+    batch_size=BATCH_SIZE,
+    verbose=1
+)
+
+final_train_acc = history.history["accuracy"][-1]
+final_val_acc = history.history["val_accuracy"][-1]
+print(f"\nFinal training accuracy: {final_train_acc:.4f}")
+print(f"Final validation accuracy: {final_val_acc:.4f}")
+print(f"Number of epochs used: {EPOCHS}")
+
+# Plot training history
+plt.figure(figsize=(12, 5))
+
+plt.subplot(1, 2, 1)
+plt.plot(history.history["accuracy"], label="Train Accuracy")
+plt.plot(history.history["val_accuracy"], label="Validation Accuracy")
+plt.title("Model Accuracy over Epochs")
+plt.xlabel("Epoch")
+plt.ylabel("Accuracy")
+plt.legend()
+
+plt.subplot(1, 2, 2)
+plt.plot(history.history["loss"], label="Train Loss")
+plt.plot(history.history["val_loss"], label="Validation Loss")
+plt.title("Model Loss over Epochs")
+plt.xlabel("Epoch")
+plt.ylabel("Loss")
+plt.legend()
+
+plt.tight_layout()
+plt.savefig("training_history.png", dpi=150)
+plt.show()
+
+# ------------------------------------------------------------------
+# PART 4 — MODEL EVALUATION
+# ------------------------------------------------------------------
+
+print("\n" + "=" * 60)
+print("MODEL EVALUATION")
+print("=" * 60)
+
+# 1. Generate prediction probabilities on the test set
+y_pred_probs = model.predict(X_test_scaled)
+
+# 2. Convert probabilities into binary class labels (threshold = 0.5)
+y_pred = (y_pred_probs > 0.5).astype(int).flatten()
+
+# 3. Evaluate using Accuracy Score and Confusion Matrix
+test_accuracy = accuracy_score(y_test, y_pred)
+cm = confusion_matrix(y_test, y_pred)
+
+print(f"\nTest Accuracy: {test_accuracy:.4f}")
+print(f"\nConfusion Matrix:\n{cm}")
+print(f"\nClassification Report:\n{classification_report(y_test, y_pred)}")
+
+# Visualize the confusion matrix
+plt.figure(figsize=(6, 5))
+sns.heatmap(cm, annot=True, fmt="d", cmap="Blues",
+            xticklabels=["No Diabetes", "Diabetes"],
+            yticklabels=["No Diabetes", "Diabetes"])
+plt.title("Confusion Matrix")
+plt.xlabel("Predicted Label")
+plt.ylabel("True Label")
+plt.tight_layout()
+plt.savefig("confusion_matrix.png", dpi=150)
+plt.show()
+
+# ------------------------------------------------------------------
+# INTERPRETATION (fill in with your actual run's numbers)
+# ------------------------------------------------------------------
+tn, fp, fn, tp = cm.ravel()
+print("\n" + "=" * 60)
+print("INTERPRETATION")
+print("=" * 60)
+print(f"""
+Out of {len(y_test)} test samples:
+  - True Negatives (correctly predicted 'No Diabetes'): {tn}
+  - False Positives (incorrectly predicted 'Diabetes'): {fp}
+  - False Negatives (incorrectly predicted 'No Diabetes'): {fn}
+  - True Positives (correctly predicted 'Diabetes'): {tp}
+
+The model achieved a test accuracy of {test_accuracy:.2%}.
+False negatives are especially important to minimize in a medical context,
+since missing an actual diabetes case (predicting 'No Diabetes' for a
+diabetic patient) is more costly than a false alarm. If false negatives
+are high, consider lowering the classification threshold below 0.5,
+collecting more data, or tuning the network (more neurons/layers, dropout,
+class weighting) to improve recall on the positive class.
+""")
