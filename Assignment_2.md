@@ -2,11 +2,6 @@ ASSIGNMENT REPORT
 Image Classification using Convolutional Neural Networks (CNN)
 
 Fashion-MNIST Dataset | TensorFlow/Keras
-Student Details
-Name	___Vishrutth_________________________
-Employee ID 	____290749________________________
-Course / Program	NextGen AI for Senior Engineers
-Date	____________________________
 1. Objective
 The objective of this assignment is to build an end-to-end Convolutional Neural Network (CNN) using the Fashion-MNIST dataset to classify grayscale images of clothing into ten categories. The workflow includes data preparation, image normalization and reshaping, CNN model construction, model training, evaluation, and analysis of the CNN architecture.
 2. Dataset Description
