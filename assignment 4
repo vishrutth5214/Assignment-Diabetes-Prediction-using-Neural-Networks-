@@ -1,0 +1,760 @@
+Yes — if you need to submit the assignment itself, you don't need all the explanatory teaching material I gave above. You need a clean assignment/notebook content with code, outputs, and conclusions.
+
+Below is a submission-ready version. You can copy this directly into a Google Colab/Jupyter Notebook, with each # section as a Markdown cell and each code block as a Code cell.
+
+Tool-Calling Agents using LangChain and Gemini — Healthcare
+1. Objective
+
+The objective of this assignment is to develop an AI-powered Healthcare Patient Triage Assistant using LangChain, Google Gemini, tool calling, custom Python tools, agentic decision-making, system prompts, and guardrails.
+
+The assistant accepts a patient's symptoms and basic information in natural language, identifies relevant symptom categories, uses a custom healthcare assessment tool to calculate an initial synthetic severity score, identifies risk indicators, and provides an appropriate recommendation.
+
+The system is intended only for initial triage demonstration purposes and does not provide a medical diagnosis.
+
+2. Architecture
+
+The system follows the architecture:
+
+User Query
+    ↓
+Gemini Agent
+    ↓
+Tool Selection
+    ↓
+Healthcare Assessment Tool
+    ↓
+Structured Risk Assessment
+    ↓
+Gemini
+    ↓
+Final Recommendation
+3. Install Required Libraries
+!pip install -q -U langchain langchain-google-genai
+4. Import Required Libraries
+import os
+import json
+import getpass
+
+from typing import List
+
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.tools import tool
+from langchain_core.messages import (
+    HumanMessage,
+    SystemMessage,
+    ToolMessage
+)
+5. Configure Gemini API
+if "GOOGLE_API_KEY" not in os.environ:
+    os.environ["GOOGLE_API_KEY"] = getpass.getpass(
+        "Enter your Gemini API Key: "
+    )
+
+print("Gemini API configured successfully.")
+6. Create Synthetic Healthcare Data
+
+The following synthetic data is created specifically for this assignment.
+
+symptom_category_keywords = {
+    "respiratory": [
+        "cough",
+        "mild cough",
+        "persistent cough",
+        "breathing difficulty",
+        "shortness of breath",
+        "chest congestion",
+        "wheezing"
+    ],
+
+    "cardiac": [
+        "chest pain",
+        "pressure in chest",
+        "palpitations",
+        "heart rate",
+        "dizziness"
+    ],
+
+    "infection": [
+        "fever",
+        "high fever",
+        "persistent fever",
+        "chills",
+        "body ache",
+        "fatigue"
+    ],
+
+    "neurological": [
+        "severe headache",
+        "confusion",
+        "fainting",
+        "loss of consciousness",
+        "weakness"
+    ],
+
+    "gastrointestinal": [
+        "vomiting",
+        "diarrhea",
+        "abdominal pain",
+        "stomach pain",
+        "nausea"
+    ]
+}
+7. Define Synthetic Severity Weights
+severity_weights = {
+
+    # Respiratory
+    "mild cough": 5,
+    "cough": 5,
+    "persistent cough": 10,
+    "chest congestion": 10,
+    "wheezing": 15,
+    "breathing difficulty": 30,
+    "shortness of breath": 30,
+
+    # Cardiac
+    "chest pain": 35,
+    "pressure in chest": 35,
+    "palpitations": 15,
+    "heart rate": 10,
+    "dizziness": 15,
+
+    # Infection
+    "fever": 10,
+    "high fever": 20,
+    "persistent fever": 20,
+    "chills": 10,
+    "body ache": 5,
+    "fatigue": 5,
+
+    # Neurological
+    "severe headache": 20,
+    "confusion": 30,
+    "fainting": 30,
+    "loss of consciousness": 40,
+    "weakness": 15,
+
+    # Gastrointestinal
+    "vomiting": 10,
+    "diarrhea": 10,
+    "abdominal pain": 10,
+    "stomach pain": 10,
+    "nausea": 5
+}
+8. Define High-Risk Indicators
+high_risk_indicators = {
+    "chest pain",
+    "pressure in chest",
+    "breathing difficulty",
+    "shortness of breath",
+    "confusion",
+    "fainting",
+    "loss of consciousness"
+}
+9. Age Risk Calculation
+
+Age is used only as a synthetic contribution to the score.
+
+def calculate_age_weight(age):
+
+    if age is None:
+        return 0
+
+    if age >= 65:
+        return 15
+
+    elif age >= 50:
+        return 10
+
+    elif age >= 40:
+        return 5
+
+    else:
+        return 0
+10. Healthcare Assessment Tool
+
+The following Python function is converted into a LangChain tool using the @tool decorator.
+
+@tool
+def healthcare_assessment(
+    symptoms: List[str],
+    age: int = None,
+    symptom_duration: str = None,
+    additional_information: str = ""
+) -> str:
+    """
+    Performs a synthetic initial healthcare triage assessment.
+
+    This tool does not diagnose medical conditions.
+    It calculates an educational risk score based on
+    predefined synthetic indicators.
+    """
+
+    # Normalize symptoms
+    normalized_symptoms = [
+        symptom.lower().strip()
+        for symptom in symptoms
+        if symptom and symptom.strip()
+    ]
+
+    matched_indicators = []
+    categories = []
+    score = 0
+
+    # Match symptoms with severity weights
+    for symptom in normalized_symptoms:
+
+        if symptom in severity_weights:
+
+            if symptom not in matched_indicators:
+                matched_indicators.append(symptom)
+
+            score += severity_weights[symptom]
+
+        # Identify symptom categories
+        for category, keywords in symptom_category_keywords.items():
+
+            if symptom in keywords:
+
+                if category not in categories:
+                    categories.append(category)
+
+    # Add age contribution
+    age_weight = calculate_age_weight(age)
+    score += age_weight
+
+    # Add small duration contribution
+    if symptom_duration:
+
+        duration_lower = symptom_duration.lower()
+
+        if (
+            "four days" in duration_lower
+            or "5 days" in duration_lower
+            or "six days" in duration_lower
+            or "week" in duration_lower
+        ):
+            score += 5
+
+    # Keep score between 0 and 100
+    score = min(score, 100)
+
+    # Identify missing information
+    missing_indicators = []
+
+    if age is None:
+        missing_indicators.append("patient age")
+
+    if not symptom_duration:
+        missing_indicators.append("symptom duration")
+
+    if not normalized_symptoms:
+        missing_indicators.append("specific symptoms")
+
+    # Identify unknown symptoms
+    unknown_symptoms = [
+        symptom
+        for symptom in normalized_symptoms
+        if symptom not in severity_weights
+    ]
+
+    # Determine risk
+    contains_high_risk = any(
+        symptom in high_risk_indicators
+        for symptom in matched_indicators
+    )
+
+    if len(matched_indicators) == 0:
+        risk_level = "UNKNOWN"
+        human_intervention_required = True
+
+    elif contains_high_risk or score >= 60:
+        risk_level = "HIGH"
+        human_intervention_required = True
+
+    elif score >= 25:
+        risk_level = "MODERATE"
+        human_intervention_required = False
+
+    else:
+        risk_level = "LOW"
+        human_intervention_required = False
+
+    # Structured result
+    result = {
+        "severity_score": score,
+        "risk_level": risk_level,
+        "matched_indicators": matched_indicators,
+        "unknown_symptoms": unknown_symptoms,
+        "categories": categories,
+        "age_weight": age_weight,
+        "missing_indicators": missing_indicators,
+        "human_intervention_required": human_intervention_required
+    }
+
+    return json.dumps(result, indent=2)
+11. Test the Healthcare Tool
+
+Before connecting the tool to Gemini, the tool can be tested independently.
+
+test_result = healthcare_assessment.invoke({
+    "symptoms": [
+        "chest pain",
+        "breathing difficulty",
+        "dizziness"
+    ],
+    "age": 67,
+    "symptom_duration": "since this morning",
+    "additional_information": ""
+})
+
+print(test_result)
+Sample Output
+{
+  "severity_score": 100,
+  "risk_level": "HIGH",
+  "matched_indicators": [
+    "chest pain",
+    "breathing difficulty",
+    "dizziness"
+  ],
+  "unknown_symptoms": [],
+  "categories": [
+    "respiratory",
+    "cardiac"
+  ],
+  "age_weight": 15,
+  "missing_indicators": [],
+  "human_intervention_required": true
+}
+12. Initialize Gemini
+llm = ChatGoogleGenerativeAI(
+    model="gemini-2.5-flash",
+    temperature=0,
+    max_retries=2
+)
+
+print("Gemini initialized successfully.")
+13. System Prompt and Guardrails
+SYSTEM_PROMPT = """
+You are a Healthcare Patient Triage Assistant.
+
+Your purpose is to support an initial healthcare triage workflow.
+
+You are NOT a doctor and must NOT diagnose diseases or medical
+conditions.
+
+Follow these rules:
+
+1. Use the healthcare_assessment tool whenever structured
+   symptom assessment is required.
+
+2. Do not invent missing patient information.
+
+3. If age or symptom duration is missing, clearly mention it.
+
+4. Never present the assessment as a definitive medical diagnosis.
+
+5. The severity score is synthetic and is only for educational
+   demonstration.
+
+6. If the tool reports HIGH risk or
+   human_intervention_required=true, clearly state that immediate
+   human medical attention is required.
+
+7. If symptoms do not match the supported categories, do not
+   make unsupported conclusions.
+
+8. Base the response only on information provided by the user
+   and the tool output.
+
+9. Keep responses short and structured.
+
+10. Clearly provide:
+    - Risk Level
+    - Severity Score
+    - Key Indicators
+    - Recommendation
+    - Missing Information
+    - Safety Note
+
+11. If symptoms appear potentially life-threatening, recommend
+    immediate professional or emergency medical evaluation.
+
+Do not diagnose the patient.
+"""
+14. Bind the Tool to Gemini
+tools = [healthcare_assessment]
+
+model_with_tools = llm.bind_tools(tools)
+
+print("Healthcare assessment tool bound to Gemini.")
+15. Build the Agent Workflow
+def healthcare_agent(user_query: str) -> str:
+
+    messages = [
+        SystemMessage(content=SYSTEM_PROMPT),
+        HumanMessage(content=user_query)
+    ]
+
+    # First Gemini call
+    response = model_with_tools.invoke(messages)
+
+    messages.append(response)
+
+    # Check whether Gemini selected a tool
+    if response.tool_calls:
+
+        for tool_call in response.tool_calls:
+
+            if tool_call["name"] == "healthcare_assessment":
+
+                # Execute the selected tool
+                tool_result = healthcare_assessment.invoke(
+                    tool_call["args"]
+                )
+
+                # Add tool result to conversation
+                messages.append(
+                    ToolMessage(
+                        content=tool_result,
+                        tool_call_id=tool_call["id"]
+                    )
+                )
+
+        # Gemini processes the tool result
+        final_response = model_with_tools.invoke(messages)
+
+        return final_response.content
+
+    return response.content
+16. Test Case 1 — Low Risk Scenario
+Input
+query_1 = """
+Patient is 25 years old and has had a mild cough
+for two days with no breathing difficulty or chest pain.
+"""
+
+print(healthcare_agent(query_1))
+Expected Result
+Risk Level: LOW
+
+Key Indicators:
+- Mild cough
+
+Recommendation:
+The available synthetic assessment indicates relatively low
+initial risk. Routine follow-up can be considered if symptoms
+persist or worsen.
+
+Safety Note:
+This is not a medical diagnosis. Seek professional medical
+care if symptoms become severe or new concerning symptoms appear.
+17. Test Case 2 — Moderate Risk Scenario
+Input
+query_2 = """
+Patient is 48 years old and has fever, fatigue and persistent
+cough for four days.
+"""
+
+print(healthcare_agent(query_2))
+Expected Result
+Risk Level: MODERATE
+
+Key Indicators:
+- Fever
+- Fatigue
+- Persistent cough
+
+Recommendation:
+The symptoms indicate moderate initial risk in this synthetic
+triage system. Appropriate healthcare follow-up is recommended,
+particularly if symptoms persist or worsen.
+
+Safety Note:
+This assessment does not provide a medical diagnosis.
+18. Test Case 3 — High Risk Scenario
+Input
+query_3 = """
+Patient is 67 years old and is experiencing chest pain,
+breathing difficulty and dizziness.
+"""
+
+print(healthcare_agent(query_3))
+Expected Result
+Risk Level: HIGH
+
+Key Indicators:
+- Chest pain
+- Breathing difficulty
+- Dizziness
+
+Recommendation:
+Immediate human medical attention is required. The combination
+of these symptoms should not be handled by an AI triage system alone.
+
+Safety Note:
+This is not a diagnosis. If these symptoms are occurring now,
+seek emergency medical evaluation immediately.
+19. Scenario A — Irrelevant Symptom Category
+
+This test checks whether the agent avoids unsupported conclusions when symptoms are not present in the predefined synthetic dataset.
+
+Input
+query_4 = """
+Patient is 30 years old and reports an unusual metallic taste
+and occasional eye twitching for two days.
+"""
+
+print(healthcare_agent(query_4))
+Expected Result
+Risk Level: UNKNOWN
+
+Key Indicators:
+No predefined synthetic risk indicators matched the reported symptoms.
+
+Recommendation:
+The reported symptoms are outside the supported synthetic
+assessment categories. A qualified healthcare professional
+should assess the symptoms.
+
+Safety Note:
+The AI cannot determine the cause of these symptoms and
+should not provide a diagnosis.
+20. Scenario B — Incomplete Patient Information
+
+This test checks whether the agent identifies missing information instead of assuming values.
+
+Input
+query_5 = """
+The patient has been experiencing persistent cough and fatigue.
+"""
+
+print(healthcare_agent(query_5))
+Expected Result
+Risk Level:
+Moderate / Initial Assessment
+
+Key Indicators:
+- Persistent cough
+- Fatigue
+
+Missing Information:
+- Patient age
+- Symptom duration
+
+Recommendation:
+The available information is incomplete. Additional patient
+information should be collected before making a more complete
+triage assessment.
+
+Safety Note:
+This is not a medical diagnosis.
+21. Scenario C — Multiple Risk Indicators
+
+This test contains symptoms from multiple predefined categories.
+
+Input
+query_6 = """
+Patient is 58 years old and has chest pain, shortness of breath,
+fever and dizziness for one day.
+"""
+
+print(healthcare_agent(query_6))
+Expected Result
+Risk Level: HIGH
+
+Key Indicators:
+- Chest pain
+- Shortness of breath
+- Fever
+- Dizziness
+
+Categories:
+- Cardiac
+- Respiratory
+- Infection
+
+Recommendation:
+Immediate human medical attention is required.
+
+Safety Note:
+The AI assessment is not a diagnosis and should not delay
+professional medical evaluation.
+22. Demonstrating Gemini Tool Selection
+
+The following code demonstrates that Gemini can decide to invoke the custom healthcare tool.
+
+messages = [
+    SystemMessage(content=SYSTEM_PROMPT),
+    HumanMessage(
+        content="""
+        Patient is 67 years old and is experiencing
+        chest pain, breathing difficulty and dizziness.
+        """
+    )
+]
+
+response = model_with_tools.invoke(messages)
+
+print("Gemini Response:")
+print(response)
+
+print("\nTool Calls:")
+print(response.tool_calls)
+Expected Tool Call
+
+The response should contain a tool call similar to:
+
+Tool Calls:
+
+healthcare_assessment
+
+Arguments:
+
+{
+    "symptoms": [
+        "chest pain",
+        "breathing difficulty",
+        "dizziness"
+    ],
+    "age": 67,
+    ...
+}
+
+This demonstrates that Gemini identified the healthcare assessment tool as relevant to the patient query.
+
+23. Complete End-to-End Demonstration
+patient_query = """
+Patient is 62 years old and is experiencing chest pain,
+breathing difficulty and dizziness since this morning.
+"""
+
+print("USER QUERY")
+print(patient_query)
+
+print("\n" + "=" * 60)
+
+final_answer = healthcare_agent(patient_query)
+
+print("FINAL GEMINI RESPONSE")
+print(final_answer)
+24. Test Results Summary
+Test	Scenario	Expected Risk	Human Intervention
+1	25-year-old with mild cough	LOW	No
+2	48-year-old with fever, fatigue and persistent cough	MODERATE	No
+3	67-year-old with chest pain, breathing difficulty and dizziness	HIGH	Yes
+A	Unsupported symptoms	UNKNOWN	Yes
+B	Missing patient information	Incomplete	Based on assessment
+C	Multiple risk indicators	HIGH	Yes
+25. How the Agent Works
+
+The implemented system separates the responsibilities of the LLM and the Python tool.
+
+Gemini
+
+Gemini is responsible for:
+
+Understanding natural-language queries
+Extracting patient information
+Identifying when structured assessment is required
+Selecting the healthcare assessment tool
+Interpreting the tool output
+Generating the final response
+Python Healthcare Tool
+
+The Python tool is responsible for:
+
+Matching symptoms
+Identifying symptom categories
+Calculating the synthetic severity score
+Identifying risk indicators
+Identifying missing information
+Determining whether human intervention is required
+Returning structured JSON
+26. Agentic Decision-Making
+
+The agent demonstrates agentic behavior because Gemini determines whether the custom tool should be used.
+
+The process is:
+
+Patient Query
+      ↓
+Gemini understands query
+      ↓
+Does structured assessment help?
+      ↓
+     YES
+      ↓
+Healthcare Assessment Tool
+      ↓
+Structured JSON
+      ↓
+Gemini interprets result
+      ↓
+Final Recommendation
+
+This allows the LLM to combine natural-language reasoning with deterministic Python-based processing.
+
+27. Guardrails
+
+The following guardrails were implemented:
+
+No Diagnosis
+
+The assistant is instructed not to diagnose diseases.
+
+No Invented Information
+
+The assistant does not assume missing age or symptom duration.
+
+High-Risk Escalation
+
+High-risk indicators cause the system to explicitly recommend human medical intervention.
+
+Unknown Symptoms
+
+Unsupported symptoms result in an UNKNOWN assessment rather than an unsupported medical conclusion.
+
+Synthetic Scoring
+
+The severity scoring system is explicitly identified as synthetic and educational.
+
+28. Learning Outcomes
+
+This assignment demonstrates the following concepts:
+
+A Python function can be converted into an LLM-accessible tool using the @tool decorator.
+Gemini can decide when a custom tool should be invoked.
+Structured JSON output from a Python tool can be passed back to the LLM.
+System prompts can establish safety rules and behavioral guardrails.
+The same agent can handle low-, moderate-, and high-risk scenarios.
+The agent can identify missing information rather than making assumptions.
+The agent can identify multiple risk indicators across different symptom categories.
+Human intervention can be explicitly identified using a structured tool output.
+29. Conclusion
+
+The Healthcare Patient Triage Assistant demonstrates how LangChain, Gemini, custom Python tools, and agentic decision-making can be combined to create an initial healthcare triage workflow.
+
+Gemini acts as the reasoning engine that understands the user's natural-language query and determines when the healthcare assessment tool should be used. The Python tool performs a deterministic synthetic assessment and returns structured information such as severity score, risk level, matched indicators, missing information, and human intervention requirements.
+
+Gemini then uses this structured result to generate a concise and understandable recommendation.
+
+The final workflow is:
+
+User Query
+    ↓
+Gemini Agent
+    ↓
+Tool Selection
+    ↓
+Healthcare Assessment Tool
+    ↓
+Structured Risk Assessment
+    ↓
+Gemini
+    ↓
+Final Recommendation
+
+The implementation demonstrates the practical use of tool calling, structured outputs, agentic decision-making, and system-level guardrails in a healthcare-related scenario.
+
+Disclaimer: All symptom categories, severity weights, and scoring logic used in this assignment are synthetic and created solely for educational purposes. They are not validated medical guidelines and should not be used for actual medical decision-making.
